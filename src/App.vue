@@ -1,6 +1,36 @@
 <template>
   <div class="container mx-auto flex flex-col items-center bg-gray-100 p-4">
-    <div class="container">
+    <div
+      v-if="this.loading"
+      class="fixed w-100 h-100 opacity-80 bg-purple-800 inset-0 z-50 flex items-center justify-center"
+    >
+      <svg
+        class="animate-spin -ml-1 mr-3 h-12 w-12 text-white"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+      >
+        <circle
+          class="opacity-25"
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          stroke-width="4"
+        ></circle>
+        <path
+          class="opacity-75"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+        ></path>
+      </svg>
+    </div>
+    <div
+      class="container"
+      :class="{
+        hidden: this.loading
+      }"
+    >
       <div class="w-full my-4"></div>
       <section>
         <div class="flex">
@@ -11,7 +41,8 @@
             <div class="mt-1 relative rounded-md shadow-md">
               <input
                 v-model="ticker"
-                @keydown.enter="add"
+                @keydown.enter="add('')"
+                @input="searchCrypto"
                 type="text"
                 name="wallet"
                 id="wallet"
@@ -19,10 +50,29 @@
                 placeholder="Например DOGE"
               />
             </div>
+            <div
+              v-if="this.autoComplite.length"
+              class="flex bg-white shadow-md p-1 rounded-md flex-wrap"
+            >
+              <span
+                v-for="(tickerName, idx) in this.autoComplite"
+                :key="idx"
+                @click="add(tickerName)"
+                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
+              >
+                {{ tickerName }}
+              </span>
+            </div>
+            <div v-if="tickerAlreadyAdded" class="text-sm text-red-600">
+              Такой тикер уже добавлен
+            </div>
+            <div v-if="tickerNotFound" class="text-sm text-red-600">
+              Нет совпадений
+            </div>
           </div>
         </div>
         <button
-          @click="add"
+          @click="add('')"
           type="button"
           class="my-4 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
         >
@@ -56,7 +106,7 @@
           >
             <div class="px-4 py-5 sm:p-6 text-center">
               <dt class="text-sm font-medium text-gray-500 truncate">
-                {{ t.name }} - USD
+                {{ t.name }} - RUB
               </dt>
               <dd class="mt-1 text-3xl font-semibold text-gray-900">
                 {{ t.price }}
@@ -87,7 +137,7 @@
       </template>
       <section v-if="sel" class="relative">
         <h3 class="text-lg leading-6 font-medium text-gray-900 my-8">
-          {{ sel.name }} - USD
+          {{ sel.name }} - RUB
         </h3>
         <div class="flex items-end border-gray-600 border-b border-l h-64">
           <div
@@ -98,7 +148,7 @@
           ></div>
         </div>
         <button
-          @click="sel = null"
+          @click="this.sel == null"
           type="button"
           class="absolute top-0 right-0"
         >
@@ -134,6 +184,11 @@ export default {
   name: 'App',
   data() {
     return {
+      autoComplite: [], // тут массив подсказок
+      tickerAlreadyAdded: false, // проверяет добавлен ли тикер
+      cryptocurrency: [], // массив криптовалют(получаем с сайта, скорее всего придется засунуть в другое место)
+      loading: true, // включает выключает лоадер
+      tickerNotFound: false,
       ticker: '',
       tickers: [],
       sel: null,
@@ -141,29 +196,51 @@ export default {
     }
   },
   methods: {
-    add() {
-      if (!this.ticker) return
-      const currentTicker = {
-        name: this.ticker,
-        price: 'Загрузка...'
-      }
-      this.tickers.push(currentTicker)
+    subscribeToUpdats(tickerName) {
       const api_key =
         '66abcb66e492b555882a5b81ddcb79614d46bb69e05c75d8a52193076a00ada1'
-      const syms = 'USD'
+      const syms = 'RUB'
       setInterval(async () => {
         const f = await fetch(
-          `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=${syms}&api_key=${api_key}`
+          `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=${syms}&api_key=${api_key}`
         )
         const data = await f.json()
-        this.tickers.find(t => t.name === currentTicker.name).price =
-          data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2)
-        if (this.sel?.name === currentTicker.name) {
-          this.graph.push(data.USD)
+        this.tickers.find(t => t.name === tickerName).price =
+          data[syms] > 1 ? data[syms].toFixed(2) : data[syms].toPrecision(2)
+        if (this.sel?.name === tickerName) {
+          this.graph.push(data[syms])
         }
-      }, 5000)
+      }, 3000)
       this.ticker = ''
     },
+    add(tickerName) {
+      if (tickerName) this.ticker = tickerName
+      if (!this.cryptocurrency.includes(this.ticker.toUpperCase())) {
+        this.tickerNotFound = true
+        return
+      }
+      if (!this.ticker) return
+      this.tickerNotFound = false
+      const currentTicker = {
+        name: this.ticker.toUpperCase(),
+        price: 'Загрузка...'
+      }
+      this.tickerAlreadyAdded = false
+      this.tickers.forEach(ticker => {
+        if (ticker.name === currentTicker.name) {
+          this.tickerAlreadyAdded = true
+        }
+      })
+      if (!this.tickerAlreadyAdded) {
+        this.autoComplite = []
+        this.tickers.push(currentTicker)
+
+        localStorage.setItem('cryptonomivon-list', JSON.stringify(this.tickers))
+
+        this.subscribeToUpdats(currentTicker.name)
+      }
+    },
+
     select(ticker) {
       if (this.sel === ticker) return
       this.sel = ticker
@@ -171,6 +248,7 @@ export default {
     },
     handleDelete(tickerToRemove) {
       this.tickers = this.tickers.filter(t => t !== tickerToRemove)
+      if (this.sel == tickerToRemove) this.sel = null
     },
     normalizeGraph() {
       const maxValue = Math.max(...this.graph)
@@ -178,7 +256,39 @@ export default {
       return this.graph.map(
         price => 5 + ((price - minValue) * 95) / (maxValue - minValue)
       )
+    },
+    searchCrypto() {
+      this.tickerNotFound = false
+      this.tickerAlreadyAdded = false
+      this.autoComplite = []
+      if (this.ticker) {
+        const inputString = this.ticker.toUpperCase()
+        this.cryptocurrency.forEach(cryptoName => {
+          if (this.autoComplite.length < 4) {
+            if (cryptoName.indexOf(inputString) === 0)
+              this.autoComplite.push(cryptoName)
+          }
+        })
+      }
     }
+  },
+  created() {
+    const tickersData = localStorage.getItem('cryptonomivon-list')
+    if (tickersData) {
+      this.tickers = JSON.parse(tickersData)
+    }
+    this.tickers.forEach(ticker => {
+      this.subscribeToUpdats(ticker.name)
+    })
+    async function getCrypto() {
+      const f = await fetch(
+        'https://min-api.cryptocompare.com/data/all/coinlist?summary=true'
+      )
+      const data = await f.json()
+      this.cryptocurrency = Object.keys(data.Data)
+      this.loading = false
+    }
+    getCrypto.call(this)
   }
 }
 </script>
