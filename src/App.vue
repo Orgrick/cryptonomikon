@@ -48,6 +48,7 @@
                 id="wallet"
                 class="block w-full pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md"
                 placeholder="Например DOGE"
+                autocomplete="off"
               />
             </div>
             <div
@@ -120,10 +121,13 @@
             v-for="t in paginatedTickers"
             :key="t.name"
             @click="select(t)"
-            :class="{
-              'border-4': selectedTicker === t
-            }"
-            class="bg-white overflow-hidden shadow rounded-lg border-purple-800 border-solid cursor-pointer"
+            :class="[
+              {
+                'border-4': selectedTicker === t
+              },
+              t.price == '--' ? 'bg-red-100' : 'bg-white'
+            ]"
+            class="overflow-hidden shadow rounded-lg border-purple-800 border-solid cursor-pointer"
           >
             <div class="px-4 py-5 sm:p-6 text-center">
               <dt class="text-sm font-medium text-gray-500 truncate">
@@ -160,7 +164,10 @@
         <h3 class="text-lg leading-6 font-medium text-gray-900 my-8">
           {{ selectedTicker.name }} - USD
         </h3>
-        <div class="flex items-end border-gray-600 border-b border-l h-64">
+        <div
+          class="flex items-end border-gray-600 border-b border-l h-64"
+          ref="graph"
+        >
           <div
             v-for="(bar, idx) in normalizedGraph"
             :key="idx"
@@ -201,14 +208,14 @@
 </template>
 
 <script>
-import { subscribeToTicker, unsubscribeToTicker } from './api.js'
+import { subscribeToTicker, unsubscribeToTicker, cryptoNames } from './api.js'
 export default {
   name: 'App',
   data() {
     return {
       autoComplite: [], // тут массив подсказок
       tickerAlreadyAdded: false, // проверяет добавлен ли тикер
-      cryptocurrency: [], // массив криптовалют(получаем с сайта, скорее всего придется засунуть в другое место)
+      // cryptocurrency: [], // массив криптовалют(получаем с сайта, скорее всего придется засунуть в другое место)
       loading: true, // включает выключает лоадер
       tickerNotFound: false,
       ticker: '',
@@ -219,38 +226,51 @@ export default {
 
       graph: [],
 
-      page: 1
+      page: 1,
+      maxGraphElemets: 1
     }
   },
   methods: {
+    calculatedMaxGraphElements() {
+      if (!this.$refs.graph) return
+      this.maxGraphElemets = this.$refs.graph.clientWidth / 38
+    },
     updateTicker(tickerName, price) {
       this.tickers
         .filter(t => t.name === tickerName)
         .forEach(t => {
+          if (t === this.selectedTicker) {
+            this.graph.push(price)
+            if (this.graph.length > this.maxGraphElemets) {
+              this.graph = this.graph.slice(
+                this.graph.length - this.maxGraphElemets
+              )
+            }
+          }
           t.price = price
         })
     },
     formatPrice(price) {
-      if (price == '-') {
+      if (price == '-' || price == '--') {
         return price
       }
       return price > 1 ? price.toFixed(2) : price.toPrecision(2)
     },
-    async updateTickes() {
-      // if (!this.tickers.length) {
-      //   return
-      // }
-      // this.tickers.forEach(ticker => {
-      //   const price = exchangeData[ticker.name.toUpperCase()]
-      //   ticker.price = price ?? '-'
-      // })
-    },
+    // async updateTickes() {
+    //   if (!this.tickers.length) {
+    //     return
+    //   }
+    //   this.tickers.forEach(ticker => {
+    //     const price = exchangeData[ticker.name.toUpperCase()]
+    //     ticker.price = price ?? '-'
+    //   })
+    // },
     add(tickerName) {
       if (tickerName) this.ticker = tickerName
-      if (!this.cryptocurrency.includes(this.ticker.toUpperCase())) {
-        this.tickerNotFound = true
-        return
-      }
+      // if (!this.cryptocurrency.includes(this.ticker.toUpperCase())) {
+      //   this.tickerNotFound = true
+      //   return
+      // }
       if (!this.ticker) return
       this.tickerNotFound = false
       const currentTicker = {
@@ -285,6 +305,7 @@ export default {
       unsubscribeToTicker(tickerToRemove.name)
     },
     searchCrypto() {
+      // const start = Date.now()
       this.tickerNotFound = false
       this.tickerAlreadyAdded = false
       this.autoComplite = []
@@ -297,6 +318,11 @@ export default {
           }
         })
       }
+      // const end = Date.now()
+    },
+    async loadTickerNames() {
+      this.cryptocurrency = await cryptoNames
+      this.loading = false
     }
   },
   computed: {
@@ -359,25 +385,26 @@ export default {
         })
       )
     }
-    setInterval(this.updateTickes, 5000)
+    // setInterval(this.updateTickes, 5000)
 
     // получаем массив тикеров
-    async function getCrypto() {
-      const f = await fetch(
-        'https://min-api.cryptocompare.com/data/all/coinlist?summary=true'
-      )
-      const data = await f.json()
-      this.cryptocurrency = Object.keys(data.Data)
-      this.loading = false
-    }
-    getCrypto.call(this)
+    this.loadTickerNames()
   },
+  mounted() {
+    window.addEventListener('resize', this.calculatedMaxGraphElements)
+  },
+
+  beforeUnmount() {
+    window.removeEventListener('resize', this.calculatedMaxGraphElements)
+  },
+
   watch: {
     tickers() {
       localStorage.setItem('cryptonomivon-list', JSON.stringify(this.tickers))
     },
     selectedTicker() {
       this.graph = []
+      this.$nextTick().then(this.calculatedMaxGraphElements)
     },
     filter() {
       this.page = 1
