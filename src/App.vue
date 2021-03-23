@@ -208,11 +208,15 @@
 </template>
 
 <script>
-import { subscribeToTicker, unsubscribeToTicker, cryptoNames } from './api.js'
+// import { subscribeToTicker, unsubscribeToTicker, cryptoNames } from './api.js'
+import { cryptoNames } from './api.js'
+// import Worker from './worker'
+import { sWorker } from './worker-api'
 export default {
   name: 'App',
   data() {
     return {
+      test: '',
       autoComplite: [], // тут массив подсказок
       tickerAlreadyAdded: false, // проверяет добавлен ли тикер
       // cryptocurrency: [], // массив криптовалют(получаем с сайта, скорее всего придется засунуть в другое место)
@@ -231,6 +235,17 @@ export default {
     }
   },
   methods: {
+    getMes() {
+      sWorker.postMessage(
+        JSON.stringify({
+          action: 'subscribe',
+          ticker: this.test.toUpperCase()
+        })
+      )
+      // subscribeToTicker(this.test.toUpperCase(), newPrice => {
+      //   console.log(newPrice)
+      // })
+    },
     calculatedMaxGraphElements() {
       if (!this.$refs.graph) return
       this.maxGraphElemets = this.$refs.graph.clientWidth / 38
@@ -254,7 +269,9 @@ export default {
       if (price == '-' || price == '--') {
         return price
       }
-      return price > 1 ? price.toFixed(2) : price.toPrecision(2)
+      if (typeof price === 'number')
+        return price > 1 ? price.toFixed(2) : price.toPrecision(2)
+      return '-'
     },
     // async updateTickes() {
     //   if (!this.tickers.length) {
@@ -289,9 +306,15 @@ export default {
         this.filter = ''
         this.ticker = ''
         this.tickers = [...this.tickers, currentTicker]
-        subscribeToTicker(currentTicker.name, newPrice => {
-          this.updateTicker(currentTicker.name, newPrice)
-        })
+        sWorker.postMessage(
+          JSON.stringify({
+            action: 'subscribe',
+            ticker: currentTicker.name
+          })
+        )
+        // subscribeToTicker(currentTicker.name, newPrice => {
+        //   this.updateTicker(currentTicker.name, newPrice)
+        // })
       }
     },
 
@@ -302,7 +325,15 @@ export default {
     handleDelete(tickerToRemove) {
       this.tickers = this.tickers.filter(t => t !== tickerToRemove)
       if (this.selectedTicker == tickerToRemove) this.selectedTicker = null
-      unsubscribeToTicker(tickerToRemove.name)
+      if (tickerToRemove.price !== '--') {
+        sWorker.postMessage(
+          JSON.stringify({
+            action: 'unsubscribe',
+            ticker: tickerToRemove.name
+          })
+        )
+      }
+      //   unsubscribeToTicker(tickerToRemove.name)
     },
     searchCrypto() {
       // const start = Date.now()
@@ -370,30 +401,30 @@ export default {
         this[key] = windowData[key]
       }
     })
-    // if (windowData.filter) {
-    //   this.filter = windowData.filter
-    // }
-    // if (windowData.page) {
-    //   this.page = windowData.page
-    // }
     const tickersData = localStorage.getItem('cryptonomivon-list')
     if (tickersData) {
       this.tickers = JSON.parse(tickersData)
       this.tickers.forEach(ticker =>
-        subscribeToTicker(ticker.name, newPrice => {
-          this.updateTicker(ticker.name, newPrice)
-        })
+        sWorker.postMessage(
+          JSON.stringify({
+            action: 'subscribe',
+            ticker: ticker.name
+          })
+        )
       )
     }
-    // setInterval(this.updateTickes, 5000)
-
+    sWorker.postMessage(JSON.stringify({ action: 'init' }))
+    sWorker.onmessage = e => {
+      console.log(JSON.parse(e.data))
+      const { ticker, newPrice } = JSON.parse(e.data)
+      this.updateTicker(ticker, newPrice)
+    }
     // получаем массив тикеров
     this.loadTickerNames()
   },
   mounted() {
     window.addEventListener('resize', this.calculatedMaxGraphElements)
   },
-
   beforeUnmount() {
     window.removeEventListener('resize', this.calculatedMaxGraphElements)
   },
